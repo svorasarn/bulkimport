@@ -377,9 +377,13 @@ def validate_rows(rows):
         # Case-sensitive instrument type check
         _validate_instrument_type(row, col_index_map, case_mismatch_map, msg_type, excel_row, errors)
 
-        # GTI-specific business rules (from Confluence migration spec)
+        # Business rules from Confluence migration specs
         if msg_type == "GTI":
             _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings)
+        elif msg_type == "LCE":
+            _validate_lce_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings)
+        elif msg_type == "GTR":
+            _validate_gtr_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings)
 
     info["data_rows"] = data_row_count
     return errors, warnings, info
@@ -511,6 +515,159 @@ def _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_ro
             errors.append(
                 f"**Row {excel_row}**, `(GTI) Guarantee Text`: {len(text_lines)} lines — maximum 1,200 allowed"
             )
+
+
+def _validate_lce_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings):
+    """Business rules from Confluence migration spec for LCE."""
+
+    def get(col_name):
+        idx = col_index_map.get(col_name) or case_mismatch_map.get(col_name)
+        if idx is not None and idx < len(row):
+            return row[idx].strip() if row[idx] else ""
+        return ""
+
+    # Form of Documentary Credit
+    form = get("(LCE) Form of Documentary Credit")
+    if form:
+        valid = {"irrevocable", "irrevoc trans standby", "revocable", "revoc trans standby"}
+        if form.lower() not in valid:
+            errors.append(
+                f"**Row {excel_row}**, `(LCE) Form of Documentary Credit`: value `{form}` is invalid — "
+                f"must be one of: IRREVOCABLE, IRREVOC TRANS STANDBY, REVOCABLE, REVOC TRANS STANDBY"
+            )
+
+    # Documentary Credit Number: max 16 chars
+    dcn = get("(LCE) Documentary Credit Number")
+    if dcn and len(dcn) > 16:
+        errors.append(
+            f"**Row {excel_row}**, `(LCE) Documentary Credit Number`: {len(dcn)} chars — maximum 16 allowed"
+        )
+
+    # Applicable Rules
+    rules = get("(LCE) Applicable Rules")
+    if rules:
+        valid_rules = {"ucp latest version", "othr", "ucpurr latest version",
+                       "eucp latest version", "eucpurr latest version"}
+        if rules.lower() not in valid_rules:
+            errors.append(
+                f"**Row {excel_row}**, `(LCE) Applicable Rules`: value `{rules}` is invalid — "
+                f"must be one of: UCP LATEST VERSION, OTHR, UCPURR LATEST VERSION, "
+                f"EUCP LATEST VERSION, EUCPURR LATEST VERSION (ISP not supported)"
+            )
+
+    # Available By
+    avail = get("(LCE) Available By")
+    if avail:
+        valid_avail = {"by acceptance", "by negotiation", "by def payment",
+                       "by payment", "by mixed payment"}
+        if avail.lower() not in valid_avail:
+            errors.append(
+                f"**Row {excel_row}**, `(LCE) Available By`: value `{avail}` is invalid — "
+                f"must be one of: BY ACCEPTANCE, BY NEGOTIATION, BY DEF PAYMENT, BY PAYMENT, BY MIXED PAYMENT"
+            )
+
+    # Confirmation Indicator By Advising Bank
+    conf_ind = get("(LCE) Confirmation Indicator By Advising Bank")
+    if conf_ind:
+        if conf_ind.lower() not in ("without", "confirm"):
+            errors.append(
+                f"**Row {excel_row}**, `(LCE) Confirmation Indicator By Advising Bank`: "
+                f"value `{conf_ind}` is invalid — must be WITHOUT or CONFIRM"
+            )
+
+    # Address validation for LCE
+    for addr_col in ["(LCE) Applicant Name, Address", "(LCE) Beneficiary Name, Address",
+                      "(LCE) Advising Bank Name, Address", "(LCE) Available with Name, Address"]:
+        addr = get(addr_col)
+        if addr:
+            lines = addr.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            non_empty_lines = [l for l in lines if l.strip()]
+            if len(non_empty_lines) < 2:
+                warnings.append(
+                    f"**Row {excel_row}**, `{addr_col}`: only {len(non_empty_lines)} line(s) — "
+                    f"minimum 2 lines required (name + address)"
+                )
+            if len(lines) > 4:
+                errors.append(
+                    f"**Row {excel_row}**, `{addr_col}`: {len(lines)} lines — maximum 4 lines allowed"
+                )
+
+    # Nominal CCY: 3-letter code
+    ccy = get("(LCE) Nominal CCY")
+    if ccy and not re.match(r"^[A-Z]{3}$", ccy):
+        warnings.append(
+            f"**Row {excel_row}**, `(LCE) Nominal CCY`: `{ccy}` — "
+            f"expected 3-letter currency code (e.g. EUR, USD, CHF)"
+        )
+
+    # Corporate Ref: max 36 chars
+    ref = get("(LCE) Corporate Ref. No.")
+    if ref and len(ref) > 36:
+        warnings.append(
+            f"**Row {excel_row}**, `(LCE) Corporate Ref. No.`: {len(ref)} chars — maximum 36 allowed"
+        )
+
+    # Applicable Rules details: max 35 chars
+    details = get("(LCE) Applicable Rules (details if other)")
+    if details and len(details) > 35:
+        errors.append(
+            f"**Row {excel_row}**, `(LCE) Applicable Rules (details if other)`: "
+            f"{len(details)} chars — maximum 35 allowed"
+        )
+
+    # Place of Expiry: max 29 chars
+    place = get("(LCE) Place of Expiry")
+    if place and len(place) > 29:
+        errors.append(
+            f"**Row {excel_row}**, `(LCE) Place of Expiry`: {len(place)} chars — maximum 29 allowed"
+        )
+
+
+def _validate_gtr_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings):
+    """Business rules from Confluence migration spec for GTR."""
+
+    def get(col_name):
+        idx = col_index_map.get(col_name) or case_mismatch_map.get(col_name)
+        if idx is not None and idx < len(row):
+            return row[idx].strip() if row[idx] else ""
+        return ""
+
+    # Bank Reference Number: max 16 chars
+    bank_ref = get("(GTR) Bank Reference Number")
+    if bank_ref and len(bank_ref) > 16:
+        errors.append(
+            f"**Row {excel_row}**, `(GTR) Bank Reference Number`: {len(bank_ref)} chars — maximum 16 allowed"
+        )
+
+    # Address validation
+    for addr_col in ["(GTR) Issuing Bank Name and Address", "(GTR) Applicant Name and Address",
+                      "(GTR) Beneficiary Name and Address"]:
+        addr = get(addr_col)
+        if addr:
+            lines = addr.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            non_empty_lines = [l for l in lines if l.strip()]
+            if len(non_empty_lines) < 2:
+                warnings.append(
+                    f"**Row {excel_row}**, `{addr_col}`: only {len(non_empty_lines)} line(s) — "
+                    f"minimum 2 lines required (name + address)"
+                )
+            if len(lines) > 4:
+                errors.append(
+                    f"**Row {excel_row}**, `{addr_col}`: {len(lines)} lines — maximum 4 lines allowed"
+                )
+            for i, line in enumerate(lines):
+                if len(line) > 35:
+                    warnings.append(
+                        f"**Row {excel_row}**, `{addr_col}` line {i+1}: {len(line)} chars — max 35 per line"
+                    )
+
+    # Currency: 3-letter code
+    currency = get("(GTR) Nominal Currency")
+    if currency and not re.match(r"^[A-Z]{3}$", currency):
+        warnings.append(
+            f"**Row {excel_row}**, `(GTR) Nominal Currency`: `{currency}` — "
+            f"expected 3-letter code (e.g. EUR, USD, CHF)"
+        )
 
 
 # ---------------------------------------------------------------------------
