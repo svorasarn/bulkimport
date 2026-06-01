@@ -42,10 +42,23 @@ GTI_COLUMNS = [
      r"(?i)^(confirm|without confirmation|none|may add confirmation)$",
      "must be one of: confirm, without confirmation, none, may add confirmation"),
     ("(GTI) Delivery Courier", False, None, None),
-    ("(GTI) Method of Delivery to Beneficiary", False, None, None),
+    ("(GTI) Method of Delivery to Beneficiary", False,
+     r"(?i)^(COLL|Collection|COUR|Courier|MAIL|MESS|Messenger|REGM|Registered Mail|DIGITAL|OTHR|Other)$",
+     "must be one of: COLL/Collection, COUR/Courier, MAIL, MESS/Messenger, REGM/Registered Mail, DIGITAL, OTHR/Other"),
     ("(GTI) Konsole ID", False, None, None),
     ("(GTI) Konsole UUID reference", False, None, None),
     ("(GTI) Expiry Condition/Event", False, None, None),
+    ("(GTI) Guarantee Type Details", False, None, None),
+    ("(GTI) Local Guarantee Type Details", False, None, None),
+    ("(GTI) Requested Confirmation Party", False, None, None),
+    ("(GTI) Automatic Extension Period", False,
+     r"(?i)^(number of calendar days after latest expiry date|same date one year later|other extension clause|none|DAYS|ONEY|OTHR)$",
+     "must be one of: 'number of calendar days after latest expiry date', 'same date one year later', 'other extension clause', or 'none'"),
+    ("(GTI) Automatic Extension Period Details", False, None, None),
+    ("(GTI) Automatic Extension Notification Period", False, None, None),
+    ("(GTI) Automatic Extension Final Expiry Date", False, None, None),
+    ("(GTI) Local Guarantor Name and Address", False, None, None),
+    ("(GTI) Applicable Rules Details", False, None, None),
 ]
 
 LCE_COLUMNS = [
@@ -212,11 +225,25 @@ def parse_xls(file_bytes):
 def parse_xlsx(file_bytes):
     """Parse .xlsx file."""
     import openpyxl
+    from datetime import datetime as dt
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
     rows = []
     for row in ws.iter_rows(values_only=True):
-        rows.append([str(c).strip() if c is not None else "" for c in row])
+        parsed_row = []
+        for c in row:
+            if c is None:
+                parsed_row.append("")
+            elif isinstance(c, dt):
+                parsed_row.append(c.strftime("%d/%m/%Y"))
+            elif isinstance(c, (int, float)):
+                if c == int(c):
+                    parsed_row.append(str(int(c)))
+                else:
+                    parsed_row.append(str(c))
+            else:
+                parsed_row.append(str(c).strip())
+        rows.append(parsed_row)
     return rows, None
 
 
@@ -503,7 +530,126 @@ def _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_ro
             f"expected 3-letter code (e.g. EUR, USD, CHF)"
         )
 
-    # Guarantee Text: max 78,000 chars and 1,200 lines
+    # Applicable Rules Details: mandatory when Applicable Rules is OTHR, max 35 chars
+    if rules and rules.upper() == "OTHR":
+        rules_details = get("(GTI) Applicable Rules Details")
+        if not rules_details:
+            errors.append(
+                f"**Row {excel_row}**, `(GTI) Applicable Rules Details`: empty — "
+                f"**mandatory when Applicable Rules is OTHR**"
+            )
+    rules_details = get("(GTI) Applicable Rules Details")
+    if rules_details and len(rules_details) > 35:
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Applicable Rules Details`: {len(rules_details)} chars — maximum 35 allowed"
+        )
+
+    # Undertaking Number: max 16 chars
+    undertaking = get("(GTI) Undertaking Number")
+    if undertaking and len(undertaking) > 16:
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Undertaking Number`: {len(undertaking)} chars — maximum 16 allowed"
+        )
+
+    # Corporate Ref. No.: truncated to 35 chars
+    corp_ref = get("(GTI) Corporate Ref. No.")
+    if corp_ref and len(corp_ref) > 35:
+        warnings.append(
+            f"**Row {excel_row}**, `(GTI) Corporate Ref. No.`: {len(corp_ref)} chars — will be truncated to 35"
+        )
+
+    # Expiry Condition/Event: max 780 chars, 65 chars/line
+    expiry_cond_text = get("(GTI) Expiry Condition/Event")
+    if expiry_cond_text:
+        if len(expiry_cond_text) > 780:
+            errors.append(
+                f"**Row {excel_row}**, `(GTI) Expiry Condition/Event`: {len(expiry_cond_text)} chars — maximum 780 allowed"
+            )
+        for i, line in enumerate(expiry_cond_text.replace("\r\n", "\n").split("\n")):
+            if len(line) > 65:
+                warnings.append(
+                    f"**Row {excel_row}**, `(GTI) Expiry Condition/Event` line {i+1}: {len(line)} chars — max 65 per line"
+                )
+
+    # Guarantee Type Details: max 140 chars
+    gt_details = get("(GTI) Guarantee Type Details")
+    if gt_details and len(gt_details) > 140:
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Guarantee Type Details`: {len(gt_details)} chars — maximum 140 allowed"
+        )
+
+    # Local Guarantee Type Details: max 35 chars
+    lgt_details = get("(GTI) Local Guarantee Type Details")
+    if lgt_details and len(lgt_details) > 35:
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Local Guarantee Type Details`: {len(lgt_details)} chars — maximum 35 allowed"
+        )
+
+    # Automatic Extension Period Details: max 35 chars, mandatory if period = OTHR
+    auto_ext_period = get("(GTI) Automatic Extension Period")
+    auto_ext_details = get("(GTI) Automatic Extension Period Details")
+    if auto_ext_period and auto_ext_period.lower() in ("other extension clause", "othr"):
+        if not auto_ext_details:
+            errors.append(
+                f"**Row {excel_row}**, `(GTI) Automatic Extension Period Details`: empty — "
+                f"**mandatory when Automatic Extension Period is OTHR**"
+            )
+    if auto_ext_details and len(auto_ext_details) > 35:
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Automatic Extension Period Details`: {len(auto_ext_details)} chars — maximum 35 allowed"
+        )
+
+    # Automatic Extension Notification Period: must be positive integer
+    auto_ext_notif = get("(GTI) Automatic Extension Notification Period")
+    if auto_ext_notif:
+        if not re.match(r"^\d+$", auto_ext_notif) or int(auto_ext_notif) <= 0:
+            errors.append(
+                f"**Row {excel_row}**, `(GTI) Automatic Extension Notification Period`: "
+                f"value `{auto_ext_notif}` is invalid — must be a positive integer (e.g. 30, 60, 90)"
+            )
+
+    # Delivery Courier: max 35 chars
+    courier = get("(GTI) Delivery Courier")
+    if courier and len(courier) > 35:
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Delivery Courier`: {len(courier)} chars — maximum 35 allowed"
+        )
+
+    # Requested Confirmation Party: address format (4 lines max, 35 chars/line)
+    req_conf = get("(GTI) Requested Confirmation Party")
+    if req_conf:
+        lines = req_conf.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if len(lines) > 4:
+            errors.append(
+                f"**Row {excel_row}**, `(GTI) Requested Confirmation Party`: {len(lines)} lines — maximum 4 lines allowed"
+            )
+        for i, line in enumerate(lines):
+            if len(line) > 35:
+                warnings.append(
+                    f"**Row {excel_row}**, `(GTI) Requested Confirmation Party` line {i+1}: {len(line)} chars — max 35 per line"
+                )
+
+    # Local Guarantor Name and Address: same rules as other address fields
+    local_guarantor = get("(GTI) Local Guarantor Name and Address")
+    if local_guarantor:
+        lines = local_guarantor.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        non_empty_lines = [l for l in lines if l.strip()]
+        if len(non_empty_lines) < 2:
+            warnings.append(
+                f"**Row {excel_row}**, `(GTI) Local Guarantor Name and Address`: only {len(non_empty_lines)} line(s) — "
+                f"minimum 2 lines required (name + address)"
+            )
+        if len(lines) > 4:
+            errors.append(
+                f"**Row {excel_row}**, `(GTI) Local Guarantor Name and Address`: {len(lines)} lines — maximum 4 lines allowed"
+            )
+        for i, line in enumerate(lines):
+            if len(line) > 35:
+                warnings.append(
+                    f"**Row {excel_row}**, `(GTI) Local Guarantor Name and Address` line {i+1}: {len(line)} chars — max 35 per line"
+                )
+
+    # Guarantee Text: max 78,000 chars, 1,200 lines, 65 chars/line
     text = get("(GTI) Guarantee Text")
     if text:
         if len(text) > 78000:
@@ -515,6 +661,12 @@ def _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_ro
             errors.append(
                 f"**Row {excel_row}**, `(GTI) Guarantee Text`: {len(text_lines)} lines — maximum 1,200 allowed"
             )
+        for i, line in enumerate(text_lines):
+            if len(line) > 65:
+                warnings.append(
+                    f"**Row {excel_row}**, `(GTI) Guarantee Text` line {i+1}: {len(line)} chars — max 65 per line"
+                )
+                break  # Only warn once to avoid flooding
 
 
 def _validate_lce_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings):
