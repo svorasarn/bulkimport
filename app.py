@@ -145,6 +145,26 @@ TYPE_DEFS = {
     "GTR": (GTR_COLUMNS, "BG Received / SB Export (GTR)"),
 }
 
+# Java LAST_COLUMN constant (BulkImportService.java:37)
+JAVA_LAST_COLUMN = 20
+
+# Fields with @Pattern validation — empty string "" will fail validation
+# but null/missing will be skipped.
+PATTERN_VALIDATED_FIELDS = {
+    "(GTI) Local Guarantee Type",
+    "(GTI) Form of Guarantee",
+    "(GTI) Confirmation Indicator",
+    "(LCE) Confirmation instructions",
+}
+
+# Konsole error messages for @Pattern validation failures (from messages.properties)
+PATTERN_ERROR_MESSAGES = {
+    "(GTI) Local Guarantee Type": "Local guarantee type is incorrect",
+    "(GTI) Form of Guarantee": "Form of guarantee is incorrect",
+    "(GTI) Confirmation Indicator": "Confirmation indicator is incorrect",
+    "(LCE) Confirmation instructions": "Confirmation instructions is incorrect",
+}
+
 
 def is_date_column(col_name):
     return "date" in col_name.lower()
@@ -296,11 +316,14 @@ def validate_rows(rows):
     info["expected_cols"] = len(columns)
     info["found_cols"] = len([h for h in headers if h])
 
-    # Column count check
+    # Column count check (Java: row.getLastCellNum() < LAST_COLUMN = 20)
     non_empty = [h for h in headers if h]
-    if len(non_empty) < 20:
-        warnings.append(
-            f"Only {len(non_empty)} columns found. Konsole requires >= 20 or rows are silently skipped."
+    if len(non_empty) < JAVA_LAST_COLUMN:
+        errors.append(
+            f"**COLUMN COUNT**: Only {len(non_empty)} non-empty header columns found. "
+            f"Konsole requires at least {JAVA_LAST_COLUMN} columns "
+            f"(`isRowNotWellFilled: row.getLastCellNum() >= {JAVA_LAST_COLUMN}`) "
+            f"or **ALL rows will be silently skipped** with no error message."
         )
 
     # Header checks
@@ -354,6 +377,7 @@ def validate_rows(rows):
                 case_mismatch_map[correct] = idx
 
     data_row_count = 0
+    skipped_by_column_count = 0
     for row_idx in range(data_start, len(rows)):
         row = rows[row_idx]
         if all(not cell for cell in row):
@@ -361,6 +385,21 @@ def validate_rows(rows):
 
         data_row_count += 1
         excel_row = row_idx + 1
+
+        # Simulate Java isRowNotWellFilled(row)
+        last_non_empty = 0
+        for ci, cell in enumerate(row):
+            if cell:
+                last_non_empty = ci + 1
+        if last_non_empty < JAVA_LAST_COLUMN:
+            if skipped_by_column_count == 0:
+                errors.append(
+                    f"**Row {excel_row}**: only {last_non_empty} non-empty columns "
+                    f"(need >= {JAVA_LAST_COLUMN}). Konsole will **SILENTLY STOP** reading "
+                    f"at this row (`isRowNotWellFilled` break). All subsequent rows are lost."
+                )
+            skipped_by_column_count += 1
+            continue
 
         def get_cell(col_name):
             if col_name in col_index_map:
@@ -380,11 +419,24 @@ def validate_rows(rows):
             if required and not value:
                 errors.append(f"**Row {excel_row}**, `{col_name}`: empty — this field is required")
                 continue
+
+            # @Pattern fields: empty string "" FAILS validation in Java
+            if not value and col_name in PATTERN_VALIDATED_FIELDS:
+                konsole_msg = PATTERN_ERROR_MESSAGES.get(col_name, "value is incorrect")
+                errors.append(
+                    f"**Row {excel_row}**, `{col_name}`: {konsole_msg} — "
+                    f"empty value fails @Pattern validation. "
+                    f"Set to a valid value or remove the cell content entirely."
+                )
+                continue
+
             if not value:
                 continue
 
             if pattern and not re.match(pattern, value):
-                errors.append(f"**Row {excel_row}**, `{col_name}`: value `{value}` is invalid — {pattern_desc}")
+                konsole_msg = PATTERN_ERROR_MESSAGES.get(col_name, "")
+                prefix = f"{konsole_msg} — " if konsole_msg else ""
+                errors.append(f"**Row {excel_row}**, `{col_name}`: {prefix}value `{value}` is invalid — {pattern_desc}")
 
             if is_date_column(col_name) and not re.match(r"^\d{1,2}/\d{1,2}/\d{4}$", value):
                 errors.append(f"**Row {excel_row}**, `{col_name}`: date must be dd/MM/yyyy, got `{value}`")
@@ -394,6 +446,11 @@ def validate_rows(rows):
                     errors.append(f"**Row {excel_row}**, `{col_name}`: {err}")
 
             if is_amount_column(col_name):
+                if "," in value:
+                    warnings.append(
+                        f"**Row {excel_row}**, `{col_name}`: amount `{value}` has comma separators — "
+                        f"must be a plain number (e.g. 43257.83). Store as Excel numeric cell, not text."
+                    )
                 err = validate_amount(value)
                 if err:
                     errors.append(f"**Row {excel_row}**, `{col_name}`: {err}")
@@ -412,7 +469,20 @@ def validate_rows(rows):
         elif msg_type == "GTR":
             _validate_gtr_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings)
 
+    if data_row_count == 0:
+        errors.append(
+            "**NO DATA ROWS** found after header. Konsole will return silently with no error message."
+        )
+
+    if skipped_by_column_count > 0:
+        errors.append(
+            f"**SILENT SKIP**: {skipped_by_column_count} row(s) silently skipped by Konsole "
+            f"due to `isRowNotWellFilled()` (fewer than {JAVA_LAST_COLUMN} non-empty columns). "
+            f"Konsole breaks on the first such row — all subsequent rows are also lost."
+        )
+
     info["data_rows"] = data_row_count
+    info["skipped_rows"] = skipped_by_column_count
     return errors, warnings, info
 
 
@@ -860,11 +930,20 @@ if uploaded:
 
             # Info section
             if info:
-                cols = st.columns(4)
-                cols[0].metric("Message Type", info.get("type", "Unknown"))
-                cols[1].metric("Header Row", info.get("header_row", "?"))
-                cols[2].metric("Expected Columns", info.get("expected_cols", "?"))
-                cols[3].metric("Data Rows", info.get("data_rows", 0))
+                skipped = info.get("skipped_rows", 0)
+                if skipped > 0:
+                    cols = st.columns(5)
+                    cols[0].metric("Message Type", info.get("type", "Unknown"))
+                    cols[1].metric("Header Row", info.get("header_row", "?"))
+                    cols[2].metric("Expected Columns", info.get("expected_cols", "?"))
+                    cols[3].metric("Data Rows", info.get("data_rows", 0))
+                    cols[4].metric("Silently Skipped", skipped, delta=f"-{skipped}", delta_color="inverse")
+                else:
+                    cols = st.columns(4)
+                    cols[0].metric("Message Type", info.get("type", "Unknown"))
+                    cols[1].metric("Header Row", info.get("header_row", "?"))
+                    cols[2].metric("Expected Columns", info.get("expected_cols", "?"))
+                    cols[3].metric("Data Rows", info.get("data_rows", 0))
 
             st.divider()
 
