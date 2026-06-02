@@ -533,6 +533,8 @@ def validate_rows(rows):
 
     data_row_count = 0
     skipped_by_column_count = 0
+    rows_with_errors = set()  # Track which rows have errors
+    rows_ok = set()  # Track clean rows
     for row_idx in range(data_start, len(rows)):
         row = rows[row_idx]
         if all(not cell for cell in row):
@@ -555,6 +557,8 @@ def validate_rows(rows):
                 )
             skipped_by_column_count += 1
             continue
+
+        errors_before = len(errors)
 
         def get_cell(col_name):
             if col_name in col_index_map:
@@ -624,6 +628,12 @@ def validate_rows(rows):
         elif msg_type == "GTR":
             _validate_gtr_business_rules(row, col_index_map, case_mismatch_map, excel_row, errors, warnings)
 
+        # Track row status
+        if len(errors) > errors_before:
+            rows_with_errors.add(excel_row)
+        else:
+            rows_ok.add(excel_row)
+
     if data_row_count == 0:
         errors.append(
             "**NO DATA ROWS** found after header. Konsole will return silently with no error message."
@@ -638,6 +648,8 @@ def validate_rows(rows):
 
     info["data_rows"] = data_row_count
     info["skipped_rows"] = skipped_by_column_count
+    info["rows_with_errors"] = sorted(rows_with_errors)
+    info["rows_ok"] = sorted(rows_ok)
     return errors, warnings, info
 
 
@@ -1153,17 +1165,102 @@ if uploaded:
             else:
                 st.markdown(f'<div class="status-warn">WARNING — {len(warnings)} warning(s), review recommended</div>', unsafe_allow_html=True)
 
-            # Errors
+            # Row summary — which rows will be processed vs rejected
+            rows_err = info.get("rows_with_errors", [])
+            rows_pass = info.get("rows_ok", [])
+            if rows_err or rows_pass:
+                st.markdown('<div class="section-header">Row Summary</div>', unsafe_allow_html=True)
+
+                def _format_ranges(row_list):
+                    """Compress [3,4,5,8,9,12] into '3-5, 8-9, 12'."""
+                    if not row_list:
+                        return "—"
+                    ranges = []
+                    start = row_list[0]
+                    end = start
+                    for r in row_list[1:]:
+                        if r == end + 1:
+                            end = r
+                        else:
+                            ranges.append(f"{start}-{end}" if start != end else str(start))
+                            start = end = r
+                    ranges.append(f"{start}-{end}" if start != end else str(start))
+                    return ", ".join(ranges)
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if rows_pass:
+                        st.markdown(
+                            f'<div style="background:#f0fdf4;border-left:4px solid #afd427;padding:10px 14px;border-radius:0 4px 4px 0;margin:4px 0;">'
+                            f'<strong style="color:#166534;">Will be imported ({len(rows_pass)} rows)</strong><br>'
+                            f'<span style="color:#303C48;font-size:13px;">Rows: {_format_ranges(rows_pass)}</span></div>',
+                            unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            '<div style="background:#fef2f2;padding:10px 14px;border-radius:4px;color:#991b1b;">'
+                            '<strong>No rows will be imported</strong></div>',
+                            unsafe_allow_html=True)
+                with col_b:
+                    if rows_err:
+                        st.markdown(
+                            f'<div style="background:#fef2f2;border-left:4px solid #e74c3c;padding:10px 14px;border-radius:0 4px 4px 0;margin:4px 0;">'
+                            f'<strong style="color:#991b1b;">Will be rejected ({len(rows_err)} rows)</strong><br>'
+                            f'<span style="color:#303C48;font-size:13px;">Rows: {_format_ranges(rows_err)}</span></div>',
+                            unsafe_allow_html=True)
+
+            # Errors grouped by row
             if errors:
                 st.markdown(f'<div class="section-header">Errors ({len(errors)})</div>', unsafe_allow_html=True)
+
+                # Group errors by row number
+                import re as _re
+                grouped = {}
+                general_errors = []
                 for e in errors:
+                    m = _re.match(r"\*\*Row (\d+)\*\*", e)
+                    if m:
+                        row_num = int(m.group(1))
+                        grouped.setdefault(row_num, []).append(e)
+                    else:
+                        general_errors.append(e)
+
+                # Show general errors first
+                for e in general_errors:
                     st.markdown(f'<div class="error-item">{e}</div>', unsafe_allow_html=True)
 
-            # Warnings
+                # Show per-row errors in expandable sections
+                for row_num in sorted(grouped.keys()):
+                    row_errors = grouped[row_num]
+                    with st.expander(f"Row {row_num} — {len(row_errors)} error(s)", expanded=False):
+                        for e in row_errors:
+                            # Remove the "**Row N**, " prefix for cleaner display inside the group
+                            clean = _re.sub(r"^\*\*Row \d+\*\*, ", "", e)
+                            st.markdown(f'<div class="error-item">{clean}</div>', unsafe_allow_html=True)
+
+            # Warnings grouped by row
             if warnings:
                 st.markdown(f'<div class="section-header">Warnings ({len(warnings)})</div>', unsafe_allow_html=True)
+
+                import re as _re
+                grouped_w = {}
+                general_warnings = []
                 for w in warnings:
+                    m = _re.match(r"\*\*Row (\d+)\*\*", w)
+                    if m:
+                        row_num = int(m.group(1))
+                        grouped_w.setdefault(row_num, []).append(w)
+                    else:
+                        general_warnings.append(w)
+
+                for w in general_warnings:
                     st.markdown(f'<div class="warning-item">{w}</div>', unsafe_allow_html=True)
+
+                if grouped_w:
+                    with st.expander(f"Row-level warnings ({sum(len(v) for v in grouped_w.values())})", expanded=False):
+                        for row_num in sorted(grouped_w.keys()):
+                            for w in grouped_w[row_num]:
+                                clean = _re.sub(r"^\*\*Row \d+\*\*, ", "", w)
+                                st.markdown(f'<div class="warning-item">**Row {row_num}** — {clean}</div>', unsafe_allow_html=True)
 
             # Reference section
             with st.expander("Accepted column names reference"):
