@@ -179,10 +179,10 @@ GTI_COLUMNS = [
      "must be 'Demand guarantee', 'Dependent undertaking', or 'Standby letter of credit'"),
     ("(GTI) Local Guarantee Type", False,
      r"(?i)^(judicial|payment|advance payment|bill of lading|customs|direct pay|insurance|"
-     r"lease|none|other type|other|performance|retention|shipping|tender or bid|warranty/maintenance)$",
+     r"lease|other type|other|performance|retention|shipping|tender or bid|warranty/maintenance)$",
      "must be one of: judicial, payment, advance payment, bill of lading, customs, direct pay, "
-     "insurance, lease, none, other type, other, performance, retention, shipping, "
-     "tender or bid, warranty/maintenance"),
+     "insurance, lease, other type, other, performance, retention, shipping, "
+     "tender or bid, warranty/maintenance (note: 'none' is rejected by Konsole)"),
     ("(GTI) Nominal Currency", False, None, None),
     ("(GTI) Nominal Amount", False, None, None),
     ("(GTI) Issue Date", False, None, None),
@@ -670,6 +670,22 @@ def _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_ro
         if idx is not None and idx < len(row):
             return row[idx].strip() if row[idx] else ""
         return ""
+
+    # Local Guarantee Type vs Form of Guarantee cross-validation
+    local_guar_type = get("(GTI) Local Guarantee Type")
+    form_of_guar = get("(GTI) Form of Guarantee")
+
+    if local_guar_type and local_guar_type.lower() == "none":
+        errors.append(
+            f"**Row {excel_row}**, `(GTI) Local Guarantee Type`: Local guarantee type is incorrect — "
+            f"value `NONE` is rejected by Konsole. "
+            f"Leave the cell empty instead, or use a specific type (e.g. Performance, Other)."
+        )
+    if local_guar_type and form_of_guar and form_of_guar.lower() == "direct":
+        warnings.append(
+            f"**Row {excel_row}**, `(GTI) Local Guarantee Type`: value `{local_guar_type}` will be "
+            f"**ignored** because Form of Guarantee is Direct (only used when Indirect)."
+        )
 
     # Applicable Rules: must be ISPR, NONE, OTHR, UCPR, or URDG
     rules = get("(GTI) Applicable Rules")
