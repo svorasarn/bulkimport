@@ -10,6 +10,160 @@ from datetime import datetime
 from io import BytesIO
 
 # ---------------------------------------------------------------------------
+# Konsole theme CSS
+# ---------------------------------------------------------------------------
+
+KONSOLE_CSS = """
+<style>
+/* Header bar mimicking Konsole */
+.konsole-header {
+    background-color: #471A91;
+    padding: 12px 24px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.konsole-header svg {
+    flex-shrink: 0;
+}
+.konsole-header .header-title {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+.konsole-header .header-subtitle {
+    color: #D5D8DA;
+    font-size: 13px;
+    font-weight: 400;
+}
+
+/* Status banners */
+.status-pass {
+    background-color: #afd427;
+    color: #303C48;
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 15px;
+    margin: 12px 0;
+}
+.status-fail {
+    background-color: #e74c3c;
+    color: #ffffff;
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 15px;
+    margin: 12px 0;
+}
+.status-warn {
+    background-color: #f8c665;
+    color: #303C48;
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 15px;
+    margin: 12px 0;
+}
+
+/* Metric cards */
+.metric-card {
+    background-color: #F2F5F8;
+    border: 1px solid #D5D8DA;
+    border-radius: 6px;
+    padding: 14px 18px;
+    text-align: center;
+}
+.metric-card .metric-label {
+    color: #95999c;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.metric-card .metric-value {
+    color: #303C48;
+    font-size: 22px;
+    font-weight: 700;
+}
+.metric-card .metric-value.alert {
+    color: #e74c3c;
+}
+
+/* Error/Warning items */
+.error-item {
+    background-color: #fef2f2;
+    border-left: 4px solid #e74c3c;
+    padding: 8px 14px;
+    margin: 6px 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 13px;
+    color: #303C48;
+}
+.warning-item {
+    background-color: #fffbeb;
+    border-left: 4px solid #f8c665;
+    padding: 8px 14px;
+    margin: 6px 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 13px;
+    color: #303C48;
+}
+
+/* Section headers */
+.section-header {
+    color: #471A91;
+    font-size: 16px;
+    font-weight: 600;
+    border-bottom: 2px solid #8545C8;
+    padding-bottom: 6px;
+    margin: 20px 0 12px 0;
+}
+
+/* Upload area */
+[data-testid="stFileUploader"] {
+    border: 2px dashed #D5D8DA;
+    border-radius: 8px;
+    padding: 8px;
+}
+[data-testid="stFileUploader"]:hover {
+    border-color: #8545C8;
+}
+
+/* Purple accents on buttons */
+.stButton > button {
+    background-color: #8545C8;
+    color: white;
+    border: 1px solid #8545C8;
+}
+.stButton > button:hover {
+    background-color: #471A91;
+    border: 1px solid #471A91;
+    color: white;
+}
+
+/* Expander styling */
+[data-testid="stExpander"] {
+    border: 1px solid #D5D8DA;
+    border-radius: 6px;
+}
+</style>
+"""
+
+KOMGO_LOGO_SVG = """<svg width="61" height="20" viewBox="0 0 61 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M17.3657 9.8578C17.3657 7.86444 15.9115 6.39662 14.0295 6.39662C12.1476 6.39662 10.6934 7.86444 10.6934 9.8578C10.6934 11.8512 12.1476 13.319 14.0295 13.319C15.9115 13.319 17.3657 11.8512 17.3657 9.8578M8.38281 9.85772C8.38281 6.59384 10.9063 4.09644 14.0286 4.09644C17.1723 4.09644 19.6743 6.59384 19.6743 9.85772C19.6743 13.0999 17.1723 15.619 14.0286 15.619C10.9063 15.619 8.38281 13.0999 8.38281 9.85772" fill="white"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M58.3027 9.85782C58.3027 7.86446 56.8484 6.39664 54.9665 6.39664C53.0845 6.39664 51.6303 7.86446 51.6303 9.85782C51.6303 11.8512 53.0845 13.319 54.9665 13.319C56.8484 13.319 58.3027 11.8512 58.3027 9.85782M49.3203 9.85772C49.3203 6.59384 51.8438 4.09644 54.9661 4.09644C58.1098 4.09644 60.6118 6.59384 60.6118 9.85772C60.6118 13.0999 58.1098 15.619 54.9661 15.619C51.8438 15.619 49.3203 13.0999 49.3203 9.85772" fill="white"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M2.3431 9.18346L2.30966 9.22246V0H0V15.3342H2.30966V10.274L2.3431 10.3126V9.18346Z" fill="white"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M4.57801 9.7483L9.28281 4.38135H6.45996L2.99609 8.42325V11.0647L6.69518 15.3343H9.45384L4.57801 9.7483Z" fill="white"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M32.272 4.09644C30.8392 4.09644 29.7057 4.68803 29 5.82713C28.3798 4.73171 27.3533 4.09644 25.9632 4.09644C25.0134 4.09644 24.2073 4.36778 23.5742 4.91545V7.04248C24.0068 6.54587 24.6115 6.30902 25.2789 6.30902C26.5406 6.30902 27.2892 7.16328 27.2892 8.69668V15.3342H29.5988V9.20051C29.5988 7.20715 30.5611 6.30902 31.9298 6.30902C33.1916 6.30902 34.0042 7.16328 34.0042 8.69668V15.3342H36.3139V8.54329C36.3139 5.8052 34.6886 4.09644 32.272 4.09644" fill="white"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M22.921 5.6699C22.9153 5.67871 22.9091 5.68684 22.9034 5.69574V4.38135H20.5938V15.3343H22.9034V9.2006C22.9034 9.05787 22.9104 8.92232 22.921 8.79077V5.6699Z" fill="white"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M46.1298 4.38125V6.00221C46.1223 5.99121 46.114 5.98093 46.1063 5.96996V9.33727C46.1206 9.47176 46.1298 9.60831 46.1298 9.7482C46.1298 11.7196 44.6756 13.1874 42.7295 13.1874C40.7834 13.1874 39.3292 11.7196 39.3292 9.7482C39.3292 7.77659 40.7834 6.30899 42.7295 6.30899C43.8745 6.30899 44.8463 6.81959 45.4548 7.63948V5.22238C44.6777 4.50986 43.6534 4.09644 42.4087 4.09644C39.3933 4.09644 37.0195 6.61555 37.0195 9.7482C37.0195 12.8807 39.3933 15.3998 42.4087 15.3998C44.0554 15.3998 45.3172 14.677 46.1298 13.494V14.8303C46.1298 16.7361 44.9322 17.8533 42.9434 17.8533C41.0828 17.8533 40.2915 17.1085 39.8211 16.1665L37.8322 17.3495C38.7303 19.1019 40.5481 20 42.9005 20C45.7021 20 48.3967 18.3571 48.3967 14.8303V4.38125H46.1298Z" fill="white"/>
+</svg>"""
+
+# ---------------------------------------------------------------------------
 # Column definitions per message type (from Java @ExcelBindByName annotations)
 # ---------------------------------------------------------------------------
 
@@ -245,7 +399,7 @@ def parse_xls(file_bytes):
 def parse_xlsx(file_bytes):
     """Parse .xlsx file."""
     import openpyxl
-    from datetime import datetime as dt
+    from datetime import datetime as dt, date
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
     rows = []
@@ -254,7 +408,7 @@ def parse_xlsx(file_bytes):
         for c in row:
             if c is None:
                 parsed_row.append("")
-            elif isinstance(c, dt):
+            elif isinstance(c, (dt, date)):
                 parsed_row.append(c.strftime("%d/%m/%Y"))
             elif isinstance(c, (int, float)):
                 if c == int(c):
@@ -529,7 +683,7 @@ def _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_ro
     if validity and validity.lower() not in ("unlimited", "limited", "conditional", "open", "fixd", "cond"):
         warnings.append(
             f"**Row {excel_row}**, `(GTI) Validity Type`: value `{validity}` may not map correctly — "
-            f"expected: Unlimited (→Open), Limited (→Fixed), or Conditional"
+            f"expected: Unlimited, Limited, or Conditional"
         )
 
     # Expiry Condition/Event mandatory when Validity Type is Unlimited/Open
@@ -896,15 +1050,23 @@ def _validate_gtr_business_rules(row, col_index_map, case_mismatch_map, excel_ro
 # Streamlit UI
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Konsole Bulk Import Validator", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Konsole Bulk Import Validator", page_icon="https://www.komgo.io/favicon.ico", layout="wide")
 
-st.title("Konsole Bulk Import Validator")
-st.markdown(
-    "Upload a bulk import file (.xls, .xlsx, or .csv) to validate it against "
-    "Konsole's exact parsing rules before importing."
-)
+# Inject Konsole CSS
+st.markdown(KONSOLE_CSS, unsafe_allow_html=True)
 
-uploaded = st.file_uploader("Upload bulk import file", type=["xls", "xlsx", "csv"])
+# Header bar with komgo logo
+st.markdown(f"""
+<div class="konsole-header">
+    {KOMGO_LOGO_SVG}
+    <div>
+        <div class="header-title">Bulk Import Validator</div>
+        <div class="header-subtitle">Validate files against Konsole's exact parsing rules before importing</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+uploaded = st.file_uploader("Upload bulk import file", type=["xls", "xlsx", "csv"], label_visibility="collapsed")
 
 if uploaded:
     file_bytes = uploaded.read()
@@ -928,46 +1090,63 @@ if uploaded:
         elif rows:
             errors, warnings, info = validate_rows(rows)
 
-            # Info section
+            # Metrics row
             if info:
                 skipped = info.get("skipped_rows", 0)
                 if skipped > 0:
-                    cols = st.columns(5)
-                    cols[0].metric("Message Type", info.get("type", "Unknown"))
-                    cols[1].metric("Header Row", info.get("header_row", "?"))
-                    cols[2].metric("Expected Columns", info.get("expected_cols", "?"))
-                    cols[3].metric("Data Rows", info.get("data_rows", 0))
-                    cols[4].metric("Silently Skipped", skipped, delta=f"-{skipped}", delta_color="inverse")
+                    c1, c2, c3, c4, c5 = st.columns(5)
                 else:
-                    cols = st.columns(4)
-                    cols[0].metric("Message Type", info.get("type", "Unknown"))
-                    cols[1].metric("Header Row", info.get("header_row", "?"))
-                    cols[2].metric("Expected Columns", info.get("expected_cols", "?"))
-                    cols[3].metric("Data Rows", info.get("data_rows", 0))
+                    c1, c2, c3, c4 = st.columns(4)
 
-            st.divider()
+                with c1:
+                    st.markdown(f"""<div class="metric-card">
+                        <div class="metric-label">Message Type</div>
+                        <div class="metric-value">{info.get("type", "Unknown").split("(")[1].rstrip(")") if "(" in info.get("type", "") else info.get("type", "?")}</div>
+                    </div>""", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"""<div class="metric-card">
+                        <div class="metric-label">Columns Found</div>
+                        <div class="metric-value">{info.get("found_cols", 0)} / {info.get("expected_cols", "?")}</div>
+                    </div>""", unsafe_allow_html=True)
+                with c3:
+                    st.markdown(f"""<div class="metric-card">
+                        <div class="metric-label">Data Rows</div>
+                        <div class="metric-value">{info.get("data_rows", 0)}</div>
+                    </div>""", unsafe_allow_html=True)
+                with c4:
+                    err_class = ' alert' if errors else ''
+                    st.markdown(f"""<div class="metric-card">
+                        <div class="metric-label">Issues</div>
+                        <div class="metric-value{err_class}">{len(errors)} E / {len(warnings)} W</div>
+                    </div>""", unsafe_allow_html=True)
+                if skipped > 0:
+                    with c5:
+                        st.markdown(f"""<div class="metric-card">
+                            <div class="metric-label">Silently Skipped</div>
+                            <div class="metric-value alert">{skipped}</div>
+                        </div>""", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
 
             # Result banner
             if not errors and not warnings:
-                st.success("All checks passed! File looks valid for Konsole bulk import.", icon="✅")
+                st.markdown('<div class="status-pass">PASS — File looks valid for Konsole bulk import</div>', unsafe_allow_html=True)
             elif errors:
-                st.error(f"Validation failed: {len(errors)} error(s), {len(warnings)} warning(s)", icon="❌")
+                st.markdown(f'<div class="status-fail">FAIL — {len(errors)} error(s), {len(warnings)} warning(s)</div>', unsafe_allow_html=True)
             else:
-                st.warning(f"{len(warnings)} warning(s) — review recommended", icon="⚠️")
+                st.markdown(f'<div class="status-warn">WARNING — {len(warnings)} warning(s), review recommended</div>', unsafe_allow_html=True)
 
             # Errors
             if errors:
-                st.subheader(f"Errors ({len(errors)})")
-                st.markdown("These **will cause import failure** in Konsole:")
+                st.markdown(f'<div class="section-header">Errors ({len(errors)})</div>', unsafe_allow_html=True)
                 for e in errors:
-                    st.markdown(f"- {e}")
+                    st.markdown(f'<div class="error-item">{e}</div>', unsafe_allow_html=True)
 
             # Warnings
             if warnings:
-                st.subheader(f"Warnings ({len(warnings)})")
-                st.markdown("These **may cause issues** or indicate unused columns:")
+                st.markdown(f'<div class="section-header">Warnings ({len(warnings)})</div>', unsafe_allow_html=True)
                 for w in warnings:
-                    st.markdown(f"- {w}")
+                    st.markdown(f'<div class="warning-item">{w}</div>', unsafe_allow_html=True)
 
             # Reference section
             with st.expander("Accepted column names reference"):
@@ -990,3 +1169,12 @@ if uploaded:
                     "| `Standby letter of credit` | STBY |\n\n"
                     "Any other casing (e.g. `Standby Letter of Credit`, `DEMAND GUARANTEE`) will fail silently."
                 )
+else:
+    # Empty state
+    st.markdown("""
+    <div style="text-align: center; padding: 60px 20px; color: #95999c;">
+        <div style="font-size: 48px; margin-bottom: 16px;">&#128196;</div>
+        <div style="font-size: 16px; font-weight: 500; margin-bottom: 8px;">Drop your bulk import file here</div>
+        <div style="font-size: 13px;">Supports .xls, .xlsx, and .csv files</div>
+    </div>
+    """, unsafe_allow_html=True)
