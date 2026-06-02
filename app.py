@@ -354,6 +354,89 @@ def detect_type(header_str):
     return None
 
 
+def generate_fixed_xlsx(file_bytes, filename):
+    """Generate a fixed version of an xlsx file with auto-corrections applied."""
+    import openpyxl
+    from datetime import datetime as dt, date as _date
+    from copy import copy
+
+    wb = openpyxl.load_workbook(BytesIO(file_bytes))
+    ws = wb.active
+
+    # Find header row (row 2 = index 1)
+    headers = {}
+    for cell in ws[2]:
+        if cell.value:
+            headers[str(cell.value).strip()] = cell.column
+
+    fixes = []
+
+    # Detect message type
+    header_str = "|".join(str(c.value or "") for c in ws[2])
+    msg_type = detect_type(header_str)
+
+    for row_idx in range(3, ws.max_row + 1):
+        row = ws[row_idx]
+
+        # Fix 1: Remove "NONE" from Local Guarantee Type
+        lgt_col = headers.get("(GTI) Local Guarantee Type")
+        if lgt_col:
+            cell = ws.cell(row=row_idx, column=lgt_col)
+            if cell.value and str(cell.value).strip().upper() == "NONE":
+                old_val = cell.value
+                cell.value = None
+                fixes.append(f"Row {row_idx}: Local Guarantee Type `{old_val}` → *(removed)*")
+
+        # Fix 2: Remove empty strings in @Pattern fields (set to None/blank)
+        for field_name in PATTERN_VALIDATED_FIELDS:
+            col = headers.get(field_name)
+            if col:
+                cell = ws.cell(row=row_idx, column=col)
+                if cell.value is not None and str(cell.value).strip() == "":
+                    cell.value = None
+                    fixes.append(f"Row {row_idx}: `{field_name}` empty string → *(blank)*")
+
+        # Fix 3: Convert comma-formatted amounts to plain numbers
+        for field_name in headers:
+            if "nominal amount" in field_name.lower() or "actual amount" in field_name.lower():
+                col = headers[field_name]
+                cell = ws.cell(row=row_idx, column=col)
+                if cell.value and isinstance(cell.value, str) and "," in cell.value:
+                    try:
+                        cleaned = cell.value.replace(",", "")
+                        num = float(cleaned)
+                        old_val = cell.value
+                        cell.value = num
+                        cell.number_format = '#,##0.00'
+                        fixes.append(f"Row {row_idx}: `{field_name}` `{old_val}` → `{num}` (numeric)")
+                    except ValueError:
+                        pass
+
+        # Fix 4: Convert text dates to proper Excel dates
+        for field_name in headers:
+            if "date" in field_name.lower():
+                col = headers[field_name]
+                cell = ws.cell(row=row_idx, column=col)
+                if cell.value and isinstance(cell.value, str):
+                    val = str(cell.value).strip()
+                    # Try ISO format (2012-06-11 or 2012-06-11 00:00:00)
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"]:
+                        try:
+                            parsed = dt.strptime(val, fmt)
+                            cell.value = parsed
+                            cell.number_format = 'DD/MM/YYYY'
+                            if fmt != "%d/%m/%Y":
+                                fixes.append(f"Row {row_idx}: `{field_name}` `{val}` → Excel date")
+                            break
+                        except ValueError:
+                            continue
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue(), fixes
+
+
 def parse_xls(file_bytes):
     """Parse .xls file, handling encryption."""
     import xlrd
@@ -398,7 +481,7 @@ def parse_xls(file_bytes):
 
 
 def parse_xlsx(file_bytes):
-    """Parse .xlsx file."""
+    """Parse .xlsx file. Uses None for truly blank cells (important for @Pattern checks)."""
     import openpyxl
     from datetime import datetime as dt, date
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
@@ -408,7 +491,7 @@ def parse_xlsx(file_bytes):
         parsed_row = []
         for c in row:
             if c is None:
-                parsed_row.append("")
+                parsed_row.append(None)  # Keep None — POI treats BLANK as null (skips @Pattern)
             elif isinstance(c, (dt, date)):
                 parsed_row.append(c.strftime("%d/%m/%Y"))
             elif isinstance(c, (int, float)):
@@ -441,8 +524,8 @@ def validate_rows(rows):
         errors.append("File has fewer than 2 rows. Need at least header row + 1 data row.")
         return errors, warnings, info
 
-    row0_str = "|".join(rows[0])
-    row1_str = "|".join(rows[1]) if len(rows) > 1 else ""
+    row0_str = "|".join(str(c) if c is not None else "" for c in rows[0])
+    row1_str = "|".join(str(c) if c is not None else "" for c in rows[1]) if len(rows) > 1 else ""
 
     header_row_idx = None
     if detect_type(row1_str):
@@ -459,7 +542,7 @@ def validate_rows(rows):
         )
         return errors, warnings, info
 
-    headers = rows[header_row_idx]
+    headers = [str(c) if c is not None else "" for c in rows[header_row_idx]]
     header_str = "|".join(headers)
     msg_type = detect_type(header_str)
 
@@ -537,7 +620,7 @@ def validate_rows(rows):
     rows_ok = set()  # Track clean rows
     for row_idx in range(data_start, len(rows)):
         row = rows[row_idx]
-        if all(not cell for cell in row):
+        if all(c is None or c == "" for c in row):
             continue
 
         data_row_count += 1
@@ -546,7 +629,7 @@ def validate_rows(rows):
         # Simulate Java isRowNotWellFilled(row)
         last_non_empty = 0
         for ci, cell in enumerate(row):
-            if cell:
+            if cell is not None and cell != "":
                 last_non_empty = ci + 1
         if last_non_empty < JAVA_LAST_COLUMN:
             if skipped_by_column_count == 0:
@@ -561,31 +644,37 @@ def validate_rows(rows):
         errors_before = len(errors)
 
         def get_cell(col_name):
+            """Returns the cell value, or 'NOT_IN_FILE' if column doesn't exist."""
             if col_name in col_index_map:
                 idx = col_index_map[col_name]
-                return row[idx] if idx < len(row) else ""
+                return row[idx] if idx < len(row) else None
             if col_name in case_mismatch_map:
                 idx = case_mismatch_map[col_name]
-                return row[idx] if idx < len(row) else ""
-            return None
+                return row[idx] if idx < len(row) else None
+            return "NOT_IN_FILE"
 
         for col_name, required, pattern, pattern_desc in columns:
-            value = get_cell(col_name)
-            if value is None:
-                continue
-            value = value.strip() if value else ""
+            raw_value = get_cell(col_name)
+            if raw_value == "NOT_IN_FILE":
+                continue  # Column not in file at all
+
+            # None = truly blank cell (POI BLANK → Java null → @Pattern skipped)
+            # "" = empty string cell (POI STRING → Java "" → @Pattern fails)
+            value = str(raw_value).strip() if raw_value is not None else ""
+            is_blank_cell = raw_value is None
 
             if required and not value:
                 errors.append(f"**Row {excel_row}**, `{col_name}`: empty — this field is required")
                 continue
 
-            # @Pattern fields: empty string "" FAILS validation in Java
-            if not value and col_name in PATTERN_VALIDATED_FIELDS:
+            # @Pattern fields: empty string "" FAILS validation in Java,
+            # but truly blank cells (None) are skipped by @Pattern.
+            if not value and not is_blank_cell and col_name in PATTERN_VALIDATED_FIELDS:
                 konsole_msg = PATTERN_ERROR_MESSAGES.get(col_name, "value is incorrect")
                 errors.append(
                     f"**Row {excel_row}**, `{col_name}`: {konsole_msg} — "
-                    f"empty value fails @Pattern validation. "
-                    f"Set to a valid value or remove the cell content entirely."
+                    f"empty string fails @Pattern validation. "
+                    f"Remove the cell content entirely (make it blank, not empty)."
                 )
                 continue
 
@@ -660,7 +749,7 @@ def _validate_instrument_type(row, col_index_map, case_mismatch_map, msg_type, e
     idx = col_index_map.get(instrument_col) or case_mismatch_map.get(instrument_col)
     if idx is None or idx >= len(row):
         return
-    instrument = row[idx].strip() if row[idx] else ""
+    instrument = str(row[idx]).strip() if row[idx] is not None and row[idx] != "" else ""
     if not instrument:
         return
 
@@ -680,7 +769,7 @@ def _validate_gti_business_rules(row, col_index_map, case_mismatch_map, excel_ro
     def get(col_name):
         idx = col_index_map.get(col_name) or case_mismatch_map.get(col_name)
         if idx is not None and idx < len(row):
-            return row[idx].strip() if row[idx] else ""
+            return str(row[idx]).strip() if row[idx] is not None and row[idx] != "" else ""
         return ""
 
     # Local Guarantee Type vs Form of Guarantee cross-validation
@@ -928,7 +1017,7 @@ def _validate_lce_business_rules(row, col_index_map, case_mismatch_map, excel_ro
     def get(col_name):
         idx = col_index_map.get(col_name) or case_mismatch_map.get(col_name)
         if idx is not None and idx < len(row):
-            return row[idx].strip() if row[idx] else ""
+            return str(row[idx]).strip() if row[idx] is not None and row[idx] != "" else ""
         return ""
 
     # Form of Documentary Credit
@@ -1034,7 +1123,7 @@ def _validate_gtr_business_rules(row, col_index_map, case_mismatch_map, excel_ro
     def get(col_name):
         idx = col_index_map.get(col_name) or case_mismatch_map.get(col_name)
         if idx is not None and idx < len(row):
-            return row[idx].strip() if row[idx] else ""
+            return str(row[idx]).strip() if row[idx] is not None and row[idx] != "" else ""
         return ""
 
     # Bank Reference Number: max 16 chars
@@ -1164,6 +1253,27 @@ if uploaded:
                 st.markdown(f'<div class="status-fail">FAIL — {len(errors)} error(s), {len(warnings)} warning(s)</div>', unsafe_allow_html=True)
             else:
                 st.markdown(f'<div class="status-warn">WARNING — {len(warnings)} warning(s), review recommended</div>', unsafe_allow_html=True)
+
+            # Auto-fix and download
+            if errors and filename.endswith(".xlsx"):
+                st.markdown('<div class="section-header">Auto-Fix</div>', unsafe_allow_html=True)
+                fixed_bytes, fix_log = generate_fixed_xlsx(file_bytes, uploaded.name)
+                if fix_log:
+                    fixed_name = uploaded.name.replace(".xlsx", " - FIXED.xlsx")
+                    st.download_button(
+                        label=f"Download corrected file ({len(fix_log)} fixes applied)",
+                        data=fixed_bytes,
+                        file_name=fixed_name,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                    with st.expander(f"Fixes applied ({len(fix_log)})", expanded=False):
+                        for fix in fix_log:
+                            st.markdown(f'<div style="padding:3px 0;font-size:13px;color:#303C48;">- {fix}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        '<div style="padding:10px 14px;color:#95999c;font-size:13px;">'
+                        'No auto-fixable issues found. Manual corrections needed.</div>',
+                        unsafe_allow_html=True)
 
             # Row summary — which rows will be processed vs rejected
             rows_err = info.get("rows_with_errors", [])
