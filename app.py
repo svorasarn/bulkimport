@@ -2,6 +2,7 @@
 Konsole Bulk Import File Validator — Streamlit Web App
 ======================================================
 Validates XLS/XLSX/CSV bulk import files against Konsole's exact parsing rules.
+Version: 2.1.0
 """
 
 import streamlit as st
